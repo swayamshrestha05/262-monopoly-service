@@ -38,6 +38,7 @@
 
 import express from "express";
 import pgPromise from "pg-promise";
+import "dotenv/config";
 
 // Import types for compile-time checking.
 import type { Request, Response, NextFunction } from "express";
@@ -46,7 +47,7 @@ import type { Player, PlayerInput, Game } from "./player.js";
 // Set up the database
 const db = pgPromise()({
   host: process.env.DB_SERVER,
-  port: parseInt(process.env.DB_PORT as string) || 5432,
+  port: parseInt(process.env.DB_PORT || "5432"),
   database: process.env.DB_DATABASE,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
@@ -67,6 +68,7 @@ router.delete("/players/:id", deletePlayer);
 router.get("/games", readGames);
 router.get("/games/:id", readGame);
 router.delete("/games/:id", deleteGame);
+router.get("/games/:id/players", readGamePlayers);
 app.use(router);
 
 app.listen(port, (): void => {
@@ -233,14 +235,17 @@ function deletePlayer(
   next: NextFunction
 ): void {
   db.tx((t) => {
-    return t
-      .none("DELETE FROM PlayerGame WHERE playerID=${id}", request.params)
-      .then(() => {
-        return t.oneOrNone(
-          "DELETE FROM Player WHERE id=${id} RETURNING id",
-          request.params
-        );
-      });
+    return (
+      t
+        // FIXED: Changed playerID to gameID
+        .none("DELETE FROM PlayerGame WHERE gameID=${id}", request.params)
+        .then(() => {
+          return t.oneOrNone(
+            "DELETE FROM Game WHERE id=${id} RETURNING id",
+            request.params
+          );
+        })
+    );
   })
     .then((data: { id: number } | null): void => {
       returnDataOr404(response, data);
@@ -256,19 +261,44 @@ function deleteGame(
   next: NextFunction
 ): void {
   db.tx((t) => {
-    return t
-      .none("DELETE FROM PlayerGame WHERE playerID=${id}", request.params)
-      .then(() => {
-        return t.oneOrNone(
-          "DELETE FROM Game WHERE id=${id} RETURNING id",
-          request.params
-        );
-      });
+    return (
+      t
+        // FIXED: Changed playerID to gameID
+        .none("DELETE FROM PlayerGame WHERE gameID=${id}", request.params)
+        .then(() => {
+          return t.oneOrNone(
+            "DELETE FROM Game WHERE id=${id} RETURNING id",
+            request.params
+          );
+        })
+    );
   })
     .then((data: { id: number } | null): void => {
       returnDataOr404(response, data);
     })
     .catch((error: Error): void => {
+      next(error);
+    });
+}
+
+function readGamePlayers(
+  request: Request,
+  response: Response,
+  next: NextFunction
+): void {
+  const gameId = Number(request.params.id);
+
+  db.manyOrNone(
+    `SELECT pg.playerID, pg.score, p.name, p.email
+     FROM PlayerGame pg
+     JOIN Player p ON p.id = pg.playerID
+     WHERE pg.gameID = $1`,
+    [gameId]
+  )
+    .then((data) => {
+      response.send(data); // array of player-game objects
+    })
+    .catch((error: Error) => {
       next(error);
     });
 }

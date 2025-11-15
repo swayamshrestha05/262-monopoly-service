@@ -1,31 +1,51 @@
-# CS 262 Monopoly Web Service
+GET /
 
-This is the data service application for the
-[CS 262 sample Monopoly project](https://github.com/calvin-cs262-organization/monopoly-project),
- which is deployed here:
+Returns a simple hello message confirming that the service is running.
 
-- <https://cs262-egbefbd4aae2h0df.canadacentral-01.azurewebsites.net><br>(This URL may vary from year to year.)
+Players Endpoints
+GET /players
 
-Based on this URL, the service implements the following endpoints:
+Returns the full list of players.
 
-- `/` &mdash; a hello message
-- `/players` &mdash; the full list of players
-- `/players/:id` &mdash; the single player with the given ID (e.g., `/players/1`)
+GET /players/:id
 
-Also, it gives the following responses:
+Returns the player with the given numeric ID.
+Returns 404 if the player does not exist.
 
-- `/players/-1` &mdash; all invalid IDs like this one return a not-found error
-- `/blob` &mdash; all undefined endpoints like this one return a cannot-get error.
+POST /players
 
-It is based on the [standard Azure App Service tutorial for Node.js](https://learn.microsoft.com/en-us/azure/app-service/quickstart-nodejs?tabs=linux&pivots=development-environment-cli).
+Creates a new player.
 
-The database is relational with the schema specified in the `sql/` sub-directory
-and is hosted on [Azure PostgreSQL](https://azure.microsoft.com/en-us/products/postgresql/).
-The database server, user and password are stored as Azure application settings so that they
-aren&rsquo;t exposed in this (public) repo.
+PUT /players/:id
 
-We implement this sample service as a separate repo to simplify Azure integration;
-it&rsquo;s easier to auto-deploy a separate repo to Azure. For your team project&rsquo;s
-data service, configure your Azure App Service to auto-deploy from the master/main branch
-of your service repo. See the settings for this in the &ldquo;Deployment Center&rdquo;
-on your Azure service dashboard.
+Updates an existing player’s name and email.
+
+Returns the updated player ID, or 404 if the player does not exist.
+
+DELETE /players/:id
+
+Deletes the player with the given ID.
+• Cascades delete through PlayerGame first.
+• Returns the deleted player ID, or 404 if the player does not exist.
+
+Games Endpoints
+GET /games
+
+Returns the full list of games.
+
+GET /games/:id
+
+Returns the game with the given ID.
+Returns 404 if the game does not exist.
+
+DELETE /games/:id
+
+Deletes the game with the given ID.
+• Cascades delete through PlayerGame first.
+• Returns the deleted game ID, or 404 if the game does not exist.
+
+Undefined Endpoints
+
+Any unrecognized endpoint (e.g., /blob) returns:
+
+HTTP 404 Not Found

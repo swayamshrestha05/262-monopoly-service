@@ -37,12 +37,13 @@
  */
 
 import express from "express";
+import cors from "cors";
 import pgPromise from "pg-promise";
 import "dotenv/config";
 
 // Import types for compile-time checking.
 import type { Request, Response, NextFunction } from "express";
-import type { Player, PlayerInput, Game } from "./player.js";
+import type { Player, PlayerInput, Game, PlayerGame } from "./player.js";
 
 // Set up the database
 const db = pgPromise()({
@@ -58,6 +59,7 @@ const app = express();
 const port: number = parseInt(process.env.PORT as string) || 3000;
 const router = express.Router();
 
+app.use(cors());
 router.use(express.json());
 router.get("/", readHello);
 router.get("/players", readPlayers);
@@ -68,11 +70,10 @@ router.delete("/players/:id", deletePlayer);
 router.get("/games", readGames);
 router.get("/games/:id", readGame);
 router.delete("/games/:id", deleteGame);
-router.get("/games/:id/players", readGamePlayers);
 app.use(router);
 
-app.listen(port, (): void => {
-  console.log(`Listening on port ${port}`);
+app.listen(port, "0.0.0.0", (): void => {
+  console.log(`Listening on port ${port} on all network interfaces`);
 });
 
 /**
@@ -117,24 +118,6 @@ function readPlayers(
 }
 
 /**
- * Retrieves all games from the database.
- */
-function readGames(
-  _request: Request,
-  response: Response,
-  next: NextFunction
-): void {
-  db.manyOrNone("SELECT * FROM Game")
-    .then((data: Game[]): void => {
-      // data is a list, never null, so returnDataOr404 isn't needed.
-      response.send(data);
-    })
-    .catch((error: Error): void => {
-      next(error);
-    });
-}
-
-/**
  * Retrieves a specific player by ID.
  */
 function readPlayer(
@@ -152,21 +135,21 @@ function readPlayer(
 }
 
 /**
- * Retrieves a specific player by ID.
+ * This function is intentionally vulnerable to SQL injection attacks because it:
+ * - Directly concatenates user input into the SQL query string rather than using parameterized queries.
+ * - Allows manyOrNone results, rather than the zero-or-one it should expect.
+ * - Uses a PSQL administrator account, which has more privileges than it needs.
+ * See `sql/test-sqlInjection.http` for example attack URLs and CURL commands.
  */
-function readGame(
-  request: Request,
-  response: Response,
-  next: NextFunction
-): void {
-  db.oneOrNone("SELECT * FROM Game WHERE id=${id}", request.params)
-    .then((data: Game | null): void => {
-      returnDataOr404(response, data);
-    })
-    .catch((error: Error): void => {
-      next(error);
-    });
-}
+// function readPlayerBad(request: Request, response: Response, next: NextFunction): void {
+//     db.manyOrNone('SELECT * FROM Player WHERE id=' + request.params.id)
+//         .then((data: Player[] | null): void => {
+//             returnDataOr404(response, data);
+//         })
+//         .catch((error: Error): void => {
+//             next(error);
+//         });
+// }
 
 /**
  * This function updates an existing player's information, returning the
@@ -235,19 +218,56 @@ function deletePlayer(
   next: NextFunction
 ): void {
   db.tx((t) => {
-    return (
-      t
-        // FIXED: Changed playerID to gameID
-        .none("DELETE FROM PlayerGame WHERE gameID=${id}", request.params)
-        .then(() => {
-          return t.oneOrNone(
-            "DELETE FROM Game WHERE id=${id} RETURNING id",
-            request.params
-          );
-        })
-    );
+    return t
+      .none("DELETE FROM PlayerGame WHERE playerID=${id}", request.params)
+      .then(() => {
+        return t.oneOrNone(
+          "DELETE FROM Player WHERE id=${id} RETURNING id",
+          request.params
+        );
+      });
   })
     .then((data: { id: number } | null): void => {
+      returnDataOr404(response, data);
+    })
+    .catch((error: Error): void => {
+      next(error);
+    });
+}
+
+function readGames(
+  _request: Request,
+  response: Response,
+  next: NextFunction
+): void {
+  db.manyOrNone("SELECT * FROM Game")
+    .then((data: Game[]): void => {
+      // data is a list, never null, so returnDataOr404 isn't needed.
+      response.send(data);
+    })
+    .catch((error: Error): void => {
+      next(error);
+    });
+}
+
+function readGame(
+  request: Request,
+  response: Response,
+  next: NextFunction
+): void {
+  db.manyOrNone(
+    `SELECT 
+      P.id, 
+      P.name, 
+      P.email, 
+      PG.score 
+    FROM PlayerGame AS PG
+    JOIN Player AS P ON PG.playerID = P.id
+    WHERE PG.gameID = \${id}
+    ORDER BY PG.score DESC`,
+    request.params
+  )
+    .then((data: PlayerGame[] | null): void => {
       returnDataOr404(response, data);
     })
     .catch((error: Error): void => {
@@ -261,44 +281,19 @@ function deleteGame(
   next: NextFunction
 ): void {
   db.tx((t) => {
-    return (
-      t
-        // FIXED: Changed playerID to gameID
-        .none("DELETE FROM PlayerGame WHERE gameID=${id}", request.params)
-        .then(() => {
-          return t.oneOrNone(
-            "DELETE FROM Game WHERE id=${id} RETURNING id",
-            request.params
-          );
-        })
-    );
+    return t
+      .none("DELETE FROM PlayerGame WHERE gameID=${id}", request.params)
+      .then(() =>
+        t.oneOrNone(
+          "DELETE FROM Game WHERE id=${id} RETURNING id",
+          request.params
+        )
+      );
   })
     .then((data: { id: number } | null): void => {
       returnDataOr404(response, data);
     })
     .catch((error: Error): void => {
-      next(error);
-    });
-}
-
-function readGamePlayers(
-  request: Request,
-  response: Response,
-  next: NextFunction
-): void {
-  const gameId = Number(request.params.id);
-
-  db.manyOrNone(
-    `SELECT pg.playerID, pg.score, p.name, p.email
-     FROM PlayerGame pg
-     JOIN Player p ON p.id = pg.playerID
-     WHERE pg.gameID = $1`,
-    [gameId]
-  )
-    .then((data) => {
-      response.send(data); // array of player-game objects
-    })
-    .catch((error: Error) => {
       next(error);
     });
 }

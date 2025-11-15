@@ -26,18 +26,3 @@ export interface PlayerGame {
   playerID: number;
   score: number;
 }
-
-export interface PlayerGameWithDetails {
-  playerID: number;
-  score: number;
-  name?: string;
-  email?: string;
-}
-
-/**
- * Default game object for fallback scenarios
- */
-export const defaultGame: Game = {
-  id: 0,
-  time: "Unknown",
-};
